@@ -1,13 +1,15 @@
+import os
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
+from joblib import Parallel, delayed
 
 class ucf_model:
-    def __init__(self, train, test):
+    def __init__(self, train):
         self.train = train
-        self.test = test
         self.user_item_matrix = train.pivot(index='userId', columns='movieId', values='rating').fillna(0)
+        self.similar_users = self.precompute_similar_users()
 
     def jaccard_similarity(self, user1, user2):
         user1_movies = set(self.train[(self.train['userId'] == user1) & (self.train['rating'] >= 4)]['movieId'])
@@ -21,37 +23,84 @@ class ucf_model:
         
         return intersection / union
 
-    def get_similar_users(self, user_id):
+    def precompute_similar_users(self):
+        user_ids = self.user_item_matrix.index
+        similar_users = Parallel(n_jobs=-1)(delayed(self.get_top_n_similar_users)(user_id, n=5) for user_id in tqdm(user_ids, desc="Processing Similar Users"))
+        return dict(zip(user_ids, similar_users))
+
+    def get_top_n_similar_users(self, user_id, n=5):
         similar_users = {}
         for other_user_id in self.user_item_matrix.index:
             if other_user_id != user_id:
                 similarity = self.jaccard_similarity(user_id, other_user_id)
                 similar_users[other_user_id] = similarity
-        return similar_users
+        top_n_similar_users = sorted(similar_users.items(), key=lambda x: x[1], reverse=True)[:n]
+        return top_n_similar_users
 
     def predict_rating(self, user_id, movie_id):
-        similar_users = self.get_similar_users(user_id)
-        similar_users = sorted(similar_users.items(), key=lambda x: x[1], reverse=True)[:10]  # 选取最相似的10个用户
+        similar_users = self.similar_users[user_id]
 
         numerator = 0
+        denominator = 0
         for other_user_id, similarity in similar_users:
             if movie_id in self.user_item_matrix.columns:
                 rating = self.user_item_matrix.loc[other_user_id, movie_id]
                 if rating > 0:
                     numerator += similarity * rating
-                # else : print(f"user_id: {other_user_id}, movie_id: {movie_id} , rating: {rating}")
+                    denominator += similarity
 
-        return numerator 
-    
-    def predict(self):
-        preds = []
-        for row in tqdm(self.test.itertuples(), total=len(self.test), desc="Predicting"):
-            preds.append(self.predict_rating(row.userId, row.movieId))
-        self.test['score'] = preds
+        if denominator == 0:
+            return 0
+        
+        return numerator / denominator
 
-        rmse = np.sqrt(((self.test['rating'] - self.test['score']) ** 2).mean())
+    def predict(self, data):
+        preds = Parallel(n_jobs=-1)(delayed(self.predict_rating)(row.userId, row.movieId) for row in tqdm(data.itertuples(), total=len(data), desc="Predicting"))
+        data['score'] = preds
+        rmse = np.sqrt(((data['rating'] - data['score']) ** 2).mean())
         return rmse
 
+    def save_predictions(self, data, save_path):
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        data.to_csv(save_path, index=False)
+
+    def recommend(self, num_recommendations=20):
+        recommendations = Parallel(n_jobs=-1)(delayed(self.recommend_for_user)(user_id, num_recommendations) for user_id in tqdm(self.user_item_matrix.index, desc="Generating Recommendations"))
+        recommendations = {user_id: recs for user_id, recs in recommendations}
+        return recommendations
+
+    def recommend_for_user(self, user_id, num_recommendations):
+        similar_users = self.similar_users[user_id]
+        
+        candidate_movies = set()
+        for other_user_id, _ in similar_users:
+            candidate_movies.update(self.train[(self.train['userId'] == other_user_id) & (self.train['rating'] >= 4)]['movieId'])
+            
+        user_movie_ids = self.train[self.train['userId'] == user_id]['movieId'].tolist()
+        candidate_movies = [movie_id for movie_id in candidate_movies if movie_id not in user_movie_ids]
+        
+        movie_scores = []
+        for movie_id in candidate_movies:
+            score = self.predict_rating(user_id, movie_id)
+            movie_scores.append((movie_id, score))
+        
+        top_movies = sorted(movie_scores, key=lambda x: x[1], reverse=True)[:num_recommendations]
+        return user_id, [movie_id for movie_id, _ in top_movies]
+
+    def save_recommendations(self, save_dir, num_recommendations=20):
+        os.makedirs(save_dir, exist_ok=True)
+        recommendations = self.recommend(num_recommendations)
+        recs_df = pd.DataFrame([
+            {'userId': user_id, 'recommended_movieIds': movie_ids}
+            for user_id, movie_ids in recommendations.items()
+        ])
+        recs_df.to_csv(f"{save_dir}/recommendations.csv", index=False)
+
 def ucf(train, test, save_dir="data/ucf"):
-    model = ucf_model(train, test)
-    return model.predict()
+    model = ucf_model(train)
+    train_rmse = model.predict(train)
+    test_rmse = model.predict(test)
+    model.save_predictions(train, f"{save_dir}/train_predictions.csv")
+    model.save_predictions(test, f"{save_dir}/test_predictions.csv")
+    model.save_recommendations(save_dir, num_recommendations=20)
+    print(f"train_rmse: {train_rmse}\n test_rmse: {test_rmse}")
