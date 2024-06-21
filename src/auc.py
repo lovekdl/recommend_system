@@ -3,7 +3,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 import numpy as np
 from ucf import ucf
+from icf import icf
+from dnn import dnn
 from sklearn.preprocessing import label_binarize
+import os
+import json
+from utils import load_movie_mapping, convert_movieid_to_imdbid
 # 读取CSV文件
 df = pd.read_csv('data/ratings_small.csv')
 
@@ -14,36 +19,61 @@ df_shuffled = df.sample(frac=1, random_state=42).reset_index(drop=True)
 train, test = train_test_split(df_shuffled, test_size=0.2, random_state=42)
 
 labels = sorted(train['rating'].unique())
-train["label"] = (train['rating']*2).astype(int)
-test["label"] = (test['rating']*2).astype(int)
-print(labels)
-print(train)
+train["label"] = (train['rating']*2-1).astype(int)
+test["label"] = (test['rating']*2-1).astype(int)
+
+movieid_to_imdbid = load_movie_mapping("data/links_small.csv")
+
+
+
+
 # 保存分割后的数据到新的CSV文件
 train.to_csv('data/train_data.csv', index=False)
 test.to_csv('data/test_data.csv', index=False)
 
-# exit(0)
 
-ucf(train, test)
+# exit(0)
+save_dir="data/dnn1"
+
+# train_rmse, test_rmse = ucf(train, test, save_dir, top_k=100)
+train_rmse, test_rmse, recommendations = icf(train, test, save_dir, top_k=50)
+# train_rmse, test_rmse = dnn(train, test, save_dir=save_dir)
+
+recommendations = convert_movieid_to_imdbid(recommendations, movieid_to_imdbid)
+recs_df = pd.DataFrame([
+            {'userId': user_id, 'imdbIds': movie_ids}
+            for user_id, movie_ids in recommendations.items()
+        ])
+recs_df.to_csv(f"{save_dir}/recommendations.csv", index=False)
+
+
 # exit(0)
 # 计算AUC
-def calculate_auc(df, num_classes):
+def calculate_auc(df):
     y_true = df['label']
     y_score = df['score']
-    auc_list = []
-
-    # One-vs-Rest (OvR) approach for multi-class AUC
-    for i in range(num_classes):
-        y_true_binary = (y_true == i).astype(int)
-        auc = roc_auc_score(y_true_binary, y_score)
-        auc_list.append(auc)
+    y_true_binary = (y_true > 3).astype(int)
+    auc = roc_auc_score(y_true_binary, y_score)
     
-    return np.mean(auc_list)
+    return auc
 
-num_classes = 6  # 0-5
+num_classes = 10  # 0-5
 
-# auc_train = calculate_auc(train, num_classes)
-auc_test = calculate_auc(test, num_classes)
+auc_train = calculate_auc(train)
+auc_test = calculate_auc(test)
 
-# print(f"AUC on Train Data: {auc_train}")
+print(f"AUC on Train Data: {auc_train}")
 print(f"AUC on Test Data: {auc_test}")
+
+data = {
+    "train_rmse": train_rmse,
+    "test_rmse": test_rmse,
+    "auc_train": auc_train,
+    "auc_test": auc_test
+}
+
+
+os.makedirs(save_dir, exist_ok=True)
+file_path = os.path.join(save_dir, "log.json")
+with open(file_path, 'w') as f:
+    json.dump(data, f, indent=4)
