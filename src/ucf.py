@@ -94,6 +94,6 @@ def ucf(train, test, save_dir="data/ucf", top_k=50):
     test_rmse = model.predict(test)
     model.save_predictions(train, f"{save_dir}/train_predictions.csv")
     model.save_predictions(test, f"{save_dir}/test_predictions.csv")
-    recommendations = model.recommend(save_dir, num_recommendations=20)
+    recommendations = model.recommend(num_recommendations=20)
     print(f"train_rmse: {train_rmse}\n test_rmse: {test_rmse}")
     return train_rmse, test_rmse, recommendations

@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import mean_squared_error
 import os
+from tqdm import tqdm
 
 # 自定义数据集
 class MovieRatingDataset(Dataset):
@@ -23,7 +24,7 @@ class MovieRatingDataset(Dataset):
 
 # 神经网络模型
 class DNNModel(nn.Module):
-    def __init__(self, num_users, num_movies, embedding_dim=128, hidden_dim=256):
+    def __init__(self, num_users, num_movies, embedding_dim=512, hidden_dim=2048):
         super(DNNModel, self).__init__()
         self.user_embedding = nn.Embedding(num_users + 1, embedding_dim)  # 加1处理未知用户
         self.movie_embedding = nn.Embedding(num_movies + 1, embedding_dim)  # 加1处理未知电影
@@ -53,8 +54,6 @@ def train_model(model, train_loader, test_loader, device, num_epochs=10, lr=0.00
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     model.to(device)
-    # print(num_epochs)
-    # print(type(num_epochs))
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
@@ -82,9 +81,6 @@ def train_model(model, train_loader, test_loader, device, num_epochs=10, lr=0.00
 
         print(f'Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}')
 
-    # Save the model
-    # torch.save(model.state_dict(), 'dnn_recommender.pth')
-
 def predict_and_evaluate(model, data_loader, device):
     model.eval()
     predictions = []
@@ -96,6 +92,33 @@ def predict_and_evaluate(model, data_loader, device):
             predictions.extend(outputs.cpu().numpy())
             true_ratings.extend(ratings.numpy())
     return predictions
+
+def recommend(model, user_ids, movie_ids, known_ratings, user_to_index, movie_to_index, unknown_user_id, unknown_movie_id, device, top_k=20):
+    model.eval()
+    recommendations = {}
+    with torch.no_grad():
+        for user_id in tqdm(user_ids, desc="Generating Recommendations"):
+            user_idx = user_to_index.get(user_id, unknown_user_id)
+
+            user_tensor = torch.tensor([user_idx] * len(movie_ids), dtype=torch.long).to(device)
+            movie_indices = [movie_to_index.get(movie_id, unknown_movie_id) for movie_id in movie_ids]
+            movie_tensor = torch.tensor(movie_indices, dtype=torch.long).to(device)
+
+            # 检查索引是否在范围内
+            if user_tensor.max() >= model.user_embedding.num_embeddings or user_tensor.min() < 0:
+                raise ValueError(f"User ID {user_tensor.max()} out of range.")
+            if movie_tensor.max() >= model.movie_embedding.num_embeddings or movie_tensor.min() < 0:
+                raise ValueError(f"Movie ID {movie_tensor.max()} out of range.")
+
+            outputs = model(user_tensor, movie_tensor).cpu().numpy()
+
+            known_user_ratings = known_ratings[known_ratings['userId'] == user_id]
+            known_movies = known_user_ratings['movieId'].tolist()
+            movie_scores = [(movie_id, score) for movie_id, score in zip(movie_ids, outputs) if movie_id not in known_movies]
+
+            top_movies = sorted(movie_scores, key=lambda x: x[1], reverse=True)[:top_k]
+            recommendations[user_id] = [movie_id for movie_id, _ in top_movies]
+    return recommendations
 
 def dnn(train, test, epoch=10, batch_size=64, save_dir="data/icf"):
     user_ids = train['userId'].unique()
@@ -125,8 +148,6 @@ def dnn(train, test, epoch=10, batch_size=64, save_dir="data/icf"):
     train_predictions = predict_and_evaluate(model, train_loader, device)
     test_predictions = predict_and_evaluate(model, test_loader, device)
 
-    
-
     # Save predictions
     train['score'] = train_predictions
     test['score'] = test_predictions
@@ -137,4 +158,8 @@ def dnn(train, test, epoch=10, batch_size=64, save_dir="data/icf"):
     os.makedirs(save_dir, exist_ok=True)
     train.to_csv(f"{save_dir}/train_predictions.csv", index=False)
     test.to_csv(f"{save_dir}/test_predictions.csv", index=False)
-    return train_rmse, test_rmse
+
+    # Generate recommendations
+    recommendations = recommend(model, user_ids, movie_ids, train, user_to_index, movie_to_index, unknown_user_id, unknown_movie_id, device, top_k=20)
+    return train_rmse, test_rmse, recommendations
+
