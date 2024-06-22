@@ -11,8 +11,6 @@ from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 
 
-
-# 自定义数据集
 class MovieRatingDataset(Dataset):
     def __init__(self, data, user_to_index, movie_to_index, unknown_user_id, unknown_movie_id):
         self.users = torch.tensor([user_to_index.get(user_id, unknown_user_id) for user_id in data['userId'].values], dtype=torch.long)
@@ -25,7 +23,6 @@ class MovieRatingDataset(Dataset):
     def __getitem__(self, idx):
         return self.users[idx], self.movies[idx], self.ratings[idx]
 
-# 神经网络模型
 class DNNModel(nn.Module):
     def __init__(self, num_users, num_movies, embedding_dim=512, hidden_dim=1024):
         super(DNNModel, self).__init__()
@@ -123,7 +120,6 @@ def recommend(model, user_ids, movie_ids, known_ratings, user_to_index, movie_to
             movie_indices = [movie_to_index.get(movie_id, unknown_movie_id) for movie_id in movie_ids]
             movie_tensor = torch.tensor(movie_indices, dtype=torch.long).to(device)
 
-            # 检查索引是否在范围内
             if user_tensor.max() >= model.user_embedding.num_embeddings or user_tensor.min() < 0:
                 raise ValueError(f"User ID {user_tensor.max()} out of range.")
             if movie_tensor.max() >= model.movie_embedding.num_embeddings or movie_tensor.min() < 0:
