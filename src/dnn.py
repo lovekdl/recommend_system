@@ -29,8 +29,8 @@ class MovieRatingDataset(Dataset):
 class DNNModel(nn.Module):
     def __init__(self, num_users, num_movies, embedding_dim=512, hidden_dim=1024):
         super(DNNModel, self).__init__()
-        self.user_embedding = nn.Embedding(num_users + 1, embedding_dim)  # 加1处理未知用户
-        self.movie_embedding = nn.Embedding(num_movies + 1, embedding_dim)  # 加1处理未知电影
+        self.user_embedding = nn.Embedding(num_users + 1, embedding_dim) 
+        self.movie_embedding = nn.Embedding(num_movies + 1, embedding_dim) 
         self.fc1 = nn.Linear(embedding_dim * 2, hidden_dim)
         self.relu1 = nn.ReLU()
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
@@ -80,8 +80,8 @@ def train_model(model, train_loader, test_loader, test, device, num_epochs=10, l
             loss.backward()
             optimizer.step()
 
-            auc = calculate_auc(model, test_loader, test, device)
-            aucs.append(auc)
+            # auc = calculate_auc(model, test_loader, test, device)
+            # aucs.append(auc)
             train_loss += loss.item() * user_ids.size(0)
 
         train_loss /= len(train_loader.dataset)

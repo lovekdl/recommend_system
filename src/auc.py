@@ -33,15 +33,15 @@ train["label"] = train["rating"].apply(lambda x: 1 if x >= 4 else 0)
 test["label"] = test["rating"].apply(lambda x: 1 if x >= 4 else 0)
 
 
-save_dir="data/ucf_top150"
-train_rmse, test_rmse, recommendations = ucf(train, test, save_dir, top_k=150)
+# save_dir="data/ucf_top200"
+# train_rmse, test_rmse, recommendations = ucf(train, test, save_dir, top_k=200)
 
-# save_dir="data/icf_top100"
-# train_rmse, test_rmse, recommendations, similar_items = icf(train, test, save_dir, top_k=100)
+# save_dir="data/icf_top200"
+# train_rmse, test_rmse, recommendations, similar_items = icf(train, test, save_dir, top_k=200)
 
-# save_dir="data/dnn2"
-# train_rmse, test_rmse, recommendations, aucs = dnn(train, test, save_dir=save_dir, epoch=5, lr=5e-5)
-# data["train_aucs"] = aucs
+save_dir="data/dnn3"
+train_rmse, test_rmse, recommendations, aucs = dnn(train, test, save_dir=save_dir, epoch=4, lr=5e-5)
+data["train_aucs"] = aucs
 
 
 # tmp = {}
