@@ -8,6 +8,9 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import mean_squared_error
 import os
 from tqdm import tqdm
+from sklearn.metrics import roc_auc_score
+
+
 
 # 自定义数据集
 class MovieRatingDataset(Dataset):
@@ -24,7 +27,7 @@ class MovieRatingDataset(Dataset):
 
 # 神经网络模型
 class DNNModel(nn.Module):
-    def __init__(self, num_users, num_movies, embedding_dim=512, hidden_dim=2048):
+    def __init__(self, num_users, num_movies, embedding_dim=512, hidden_dim=1024):
         super(DNNModel, self).__init__()
         self.user_embedding = nn.Embedding(num_users + 1, embedding_dim)  # 加1处理未知用户
         self.movie_embedding = nn.Embedding(num_movies + 1, embedding_dim)  # 加1处理未知电影
@@ -49,21 +52,36 @@ class DNNModel(nn.Module):
         x = self.fc4(x)
         return x.squeeze()
 
-def train_model(model, train_loader, test_loader, device, num_epochs=10, lr=0.001):
+def calculate_auc(model, test_loader, test, device):
+    
+    test_predictions = predict_and_evaluate(model, test_loader, device)
+
+    test['score'] = test_predictions
+    
+    y_true = test['label']
+    y_score = test['score']
+    auc = roc_auc_score(y_true, y_score)
+    return auc
+
+def train_model(model, train_loader, test_loader, test, device, num_epochs=10, lr=0.001):
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     model.to(device)
+    aucs = []
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
-        for user_ids, movie_ids, ratings in train_loader:
+        for user_ids, movie_ids, ratings in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
             user_ids, movie_ids, ratings = user_ids.to(device), movie_ids.to(device), ratings.to(device)
             optimizer.zero_grad()
             outputs = model(user_ids, movie_ids)
             loss = criterion(outputs, ratings)
             loss.backward()
             optimizer.step()
+
+            auc = calculate_auc(model, test_loader, test, device)
+            aucs.append(auc)
             train_loss += loss.item() * user_ids.size(0)
 
         train_loss /= len(train_loader.dataset)
@@ -80,6 +98,7 @@ def train_model(model, train_loader, test_loader, device, num_epochs=10, lr=0.00
         test_loss /= len(test_loader.dataset)
 
         print(f'Epoch {epoch + 1}/{num_epochs}, Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}')
+    return aucs
 
 def predict_and_evaluate(model, data_loader, device):
     model.eval()
@@ -120,7 +139,7 @@ def recommend(model, user_ids, movie_ids, known_ratings, user_to_index, movie_to
             recommendations[user_id] = [movie_id for movie_id, _ in top_movies]
     return recommendations
 
-def dnn(train, test, epoch=10, batch_size=64, save_dir="data/icf"):
+def dnn(train, test, epoch=10, batch_size=64, lr=1e-4, save_dir="data/icf"):
     user_ids = train['userId'].unique()
     movie_ids = train['movieId'].unique()
 
@@ -142,7 +161,7 @@ def dnn(train, test, epoch=10, batch_size=64, save_dir="data/icf"):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = DNNModel(num_users, num_movies)
-    train_model(model, train_loader, test_loader, device, num_epochs=epoch, lr=1e-4)
+    aucs = train_model(model, train_loader, test_loader, test, device, num_epochs=epoch, lr=lr)
 
     # Predict and evaluate on train and test sets
     train_predictions = predict_and_evaluate(model, train_loader, device)
@@ -161,5 +180,5 @@ def dnn(train, test, epoch=10, batch_size=64, save_dir="data/icf"):
 
     # Generate recommendations
     recommendations = recommend(model, user_ids, movie_ids, train, user_to_index, movie_to_index, unknown_user_id, unknown_movie_id, device, top_k=20)
-    return train_rmse, test_rmse, recommendations
+    return train_rmse, test_rmse, recommendations, aucs
 

@@ -6,6 +6,9 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 from sklearn.metrics.pairwise import cosine_similarity
 import json
+from sklearn.metrics import roc_auc_score
+
+
 
 class icf_model:
     def __init__(self, train, top_k):
@@ -108,7 +111,7 @@ def icf(train, test, save_dir="data/icf", top_k=50):
     # model.save_recommendations(save_dir, num_recommendations=20)
     recommendations = model.recommend(num_recommendations=20)
     print(f"train_rmse: {train_rmse}\n test_rmse: {test_rmse}\n")
-    return train_rmse, test_rmse, recommendations
+    return train_rmse, test_rmse, recommendations, model.similar_items
 
 # 示例调用
 # train = pd.read_csv("path_to_train.csv")

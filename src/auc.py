@@ -8,7 +8,7 @@ from dnn import dnn
 from sklearn.preprocessing import label_binarize
 import os
 import json
-from utils import load_movie_mapping, convert_movieid_to_imdbid
+from utils import load_movie_mapping, convert_movieid_to_imdbid, convert
 # 读取CSV文件
 df = pd.read_csv('data/ratings_small.csv')
 
@@ -23,23 +23,41 @@ labels = sorted(train['rating'].unique())
 movieid_to_imdbid = load_movie_mapping("data/links_small.csv")
 
 
-
+data = {}
 
 # 保存分割后的数据到新的CSV文件
 train.to_csv('data/train_data.csv', index=False)
 test.to_csv('data/test_data.csv', index=False)
 
-train["label"] = train["rating"].apply(lambda x: 1 if x >= 3.5 else 0)
-test["label"] = test["rating"].apply(lambda x: 1 if x >= 3.5 else 0)
-# save_dir="data/icf_top100"
-# train_rmse, test_rmse, recommendations = ucf(train, test, save_dir, top_k=50)
+train["label"] = train["rating"].apply(lambda x: 1 if x >= 4 else 0)
+test["label"] = test["rating"].apply(lambda x: 1 if x >= 4 else 0)
+
+
+save_dir="data/ucf_top150"
+train_rmse, test_rmse, recommendations = ucf(train, test, save_dir, top_k=150)
 
 # save_dir="data/icf_top100"
-# train_rmse, test_rmse, recommendations = icf(train, test, save_dir, top_k=100)
+# train_rmse, test_rmse, recommendations, similar_items = icf(train, test, save_dir, top_k=100)
 
-save_dir="data/dnn2"
-train_rmse, test_rmse, recommendations = dnn(train, test, save_dir=save_dir, epoch=5)
+# save_dir="data/dnn2"
+# train_rmse, test_rmse, recommendations, aucs = dnn(train, test, save_dir=save_dir, epoch=5, lr=5e-5)
+# data["train_aucs"] = aucs
 
+
+# tmp = {}
+# for x,y in similar_items.items() :
+#     x = convert(x, mapping_dict=movieid_to_imdbid)
+#     if x == -1 :
+#         continue
+#     y = [pair[0] for pair in y]
+#     tmp[x] = y
+# similar_items = tmp
+# similar_items = convert_movieid_to_imdbid(similar_items, movieid_to_imdbid)
+# recs_df = pd.DataFrame([
+#             {'tmdbId': tmdbId, 'tmdbIds': movie_ids}
+#             for tmdbId, movie_ids in similar_items.items()
+#         ])
+# recs_df.to_csv(f"{save_dir}/similar_movies.csv", index=False)
 
 recommendations = convert_movieid_to_imdbid(recommendations, movieid_to_imdbid)
 recs_df = pd.DataFrame([
@@ -66,12 +84,10 @@ auc_test = calculate_auc(test)
 print(f"AUC on Train Data: {auc_train}")
 print(f"AUC on Test Data: {auc_test}")
 
-data = {
-    "train_rmse": train_rmse,
-    "test_rmse": test_rmse,
-    "auc_train": auc_train,
-    "auc_test": auc_test
-}
+data["train_rmse"] = train_rmse,
+data["test_rmse"] = test_rmse,
+data["auc_train"] = auc_train,
+data["auc_test"] = auc_test
 
 
 os.makedirs(save_dir, exist_ok=True)
